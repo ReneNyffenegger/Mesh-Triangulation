@@ -1,0 +1,13 @@
+A mesh triangulation class.  Takes a set of points and creates a triangular mesh through them.  
+
+This was made for learning purposes, feel free to use this however you want.  I claim no responsiblity for it.
+
+I used two pieces of code written by others:
+
+1) A kdtree structure ( http://code.google.com/p/kdtree/ ), which I slightly modified to make it a header-only file.
+
+2) A svg drawing class ( http://code.google.com/p/simple-svg/ ).
+
+
+By: Gavin Lobo
+    www.rabidgeek.net
