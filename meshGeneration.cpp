@@ -1,9 +1,8 @@
 #include "meshGenerator.h"
-#include <simple_svg.hpp>
-#include <ting/Socket.hpp>
+#include "simple_svg.hpp"
 #include <time.h>
 
-#define N 250
+#define N 1000
 #define RANDOM ( (double)rand() / (double) RAND_MAX )
 
 int main(int argc, char **argv)
@@ -25,7 +24,7 @@ int main(int argc, char **argv)
 
     // Generate a mesh making sure that the max length of
     // a triangle's edige is less than 0.25;
-    M.generateMesh(0.25);
+    M.generateMesh(0.1);
 
     // draw the mesh to an svg file that has dimensions 1000 x 1000
     M.drawMesh("mesh", 1000.0);

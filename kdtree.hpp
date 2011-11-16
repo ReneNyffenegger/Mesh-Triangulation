@@ -870,7 +870,9 @@ public:
 
 
 
-
+/*=================================================================================
+A C++ wrapper for the kdtree structure.
+==================================================================================*/
 #ifndef _KTREE_H_
 #define _KTREE_H_
 
@@ -900,6 +902,7 @@ class KTree
             return( kdtreeWrapper::kd_insert( tree, loc, (void*)p)  );
         }
 
+        // Find all the nearest neighbours
         void find(std::vector<myType*>& NN, double radius, double *loc)
         {
 

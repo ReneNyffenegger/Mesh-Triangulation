@@ -7,7 +7,8 @@
 #include <vector>
 #include <set>
 #include <omp.h>
-#include <simple_svg.hpp>
+#include <string>
+#include "simple_svg.hpp"
 #include "kdtree.hpp"
 
 
@@ -16,13 +17,16 @@ using namespace svg;
 class node;
 class meshGenerator;
 
+
+/*==========================================================
+A node class in 3 dimensions (only 2 are used so far)
+==========================================================*/
 class node
 {
     public:
 
-        double pos[3];
-
-        int index;
+        double pos[3];                          // The cartesian coordinates of the node
+        int index;                              // The index of the node.  This is automatically modified. Do not play with thiss
 
         node& operator=(const node & n)
         {
@@ -36,10 +40,9 @@ class node
             pos[0] = X;
             pos[1] = Y;
             pos[2] = Z;
-            //printf("node created: %lf %lf %lf\n", pos[0], pos[1], pos[2]);
         };
 
-
+        // Calculates the square of the distance between this node and another node
         double distanceSquared(node *p)
         {
             return( (pos[0]-p->pos[0])*(pos[0]-p->pos[0]) + (pos[1]-p->pos[1])*(pos[1]-p->pos[1]) + (pos[2]-p->pos[2])*(pos[2]-p->pos[2]));
@@ -47,13 +50,19 @@ class node
 
 };
 
+
+/*==========================================================
+Triangle class
+
+Information about a triangle in the mesh.
+==========================================================*/
 class triangle
 {
     public:
-        std::vector<node*> * nodeVector;  // pointer to the node vector
-        int nodes[3];           // the indices of the 3 nodes used to construct the circle
-        double pos[2];            // position of circumcenter
-        double radius;            // radius of circle
+        std::vector<node*> * nodeVector;                // pointer to the node vector
+        int nodes[3];                                   // the indices of the 3 nodes used to construct the circle
+        double pos[2];                                  // position of circumcenter
+        double radius;                                  // radius of circle
 
         triangle()
         {
@@ -79,8 +88,8 @@ class triangle
 
             nodeVector = &listOfNodes;
 
+            // sort the node indices so they are from smallest index to largest index
             qsort(nodes,3, sizeof(int), intcomp);
-           // printf("Constructing triangle %d %d %d\n", nodes[0],nodes[1],nodes[2]);
 
             constructTriangle( listOfNodes[ nodes[0]],listOfNodes[nodes[1]],listOfNodes[nodes[2]] );
         };
@@ -90,6 +99,10 @@ class triangle
             getCircle( An, Bn, Cn);
         }
 
+        /*==============================================================
+        Given the 3 nodes of the triangle, calculate the circumcenter
+        and the radius of the circle
+        ==============================================================*/
         void getCircle( node* A, node *B, node *C )
         {
 
@@ -108,24 +121,27 @@ class triangle
             pos[1] = ny+A->pos[1];
 
 
-
             radius = (pos[0] - A->pos[0])*(pos[0] - A->pos[0]) + (pos[1] - A->pos[1])*(pos[1] - A->pos[1]);
- //           printf("Triangle created: %lf %lf, %lf (%d, %d, %d)\n", pos[0], pos[1], radius, nodes[0], nodes[1], nodes[2]);
 
         };
 
+        /*==============================================================
+        Square of the distance between a node and the circumcenter of
+        the circle created by the triangle
+        ==============================================================*/
         double distanceSquared(node *A)
         {
 
             return( (pos[0] - A->pos[0])*(pos[0] - A->pos[0]) + (pos[1] - A->pos[1])*(pos[1] - A->pos[1]) );
         }
 
-
+        // Compares integers for the qsort algorithm
         static int intcomp(const void *a, const void *b)
         {
             return( *(int*)a - *(int*)b );
         }
 
+        // compairson operator for the std::vector<triangle*> function
         bool operator()(triangle* a, triangle *b)
         {
             if( a->nodes[0] < b->nodes[0]) return(true);
@@ -141,11 +157,11 @@ class triangle
 class meshGenerator
 {
     private:
-        KTree<node,2> nodeTree;
-        KTree<triangle,2> triangleTree;
+        KTree<node,2>                   nodeTree;                       // A KD-Tree of nodes. This is used to find the neasrest neighbours
+        KTree<triangle,2>               triangleTree;                   // A KD-Tree for the triangles, This isn't used it. Maybe in the future.
 
-        std::vector<node*> nodeVector;
-        std::set<triangle*, triangle> triangleSet;
+        std::vector<node*>              nodeVector;                     // A vector of all the nodes in the mesh
+        std::set<triangle*, triangle>   triangleSet;                    // A set of all the triangles. Cannot contain duplicate triangles
 
         double maxX;
         double minX;
@@ -164,12 +180,14 @@ class meshGenerator
         ~meshGenerator()
         {
 
+            // Delete all the nodes that have been created
             for(int i=0;i<nodeVector.size();i++)
             {
                 delete nodeVector[i];
             }
 
 
+            // delete all the triangles that have been created
             std::set<triangle*>::iterator it;
             triangle *tria;
             for(it = triangleSet.begin(); it != triangleSet.end(); it++)
@@ -184,59 +202,86 @@ class meshGenerator
 
         bool insertNode(double x, double y)
         {
+            // Make sure the node we are inserting is in the range (0,0 <= (x,y) < (1,1)
             if( x > 1.0 || x < 0.0 || y > 1.0 || y < 0.0) return false;
 
             node * n = new node(x,y,0.0);
+
+            // add it to the node vector
             nodeVector.push_back(n);
+
+            // set the index of the new node
             n->index = nodeVector.size()-1;
+
+            // insert the node into the KD-tree
             nodeTree.insert(n,n->pos);
 
             return true;
         }
 
+
+        /*=============================================================================
+        Generates the mesh out of the nodes that are already in the vector.
+
+        Outline of the algorithm
+           -For every 3 points, construct a circle that passes through all three points
+           -If there are no other points that lie within that circle, then construct
+            a triangle with those three points.
+
+        Input paramter: maxLength - the maximum length of the side of a triangle
+                                  - this is not strictly enforced.
+                                  - This parameter is to increase the speed of the
+                                    algorithm.
+        *============================================================================*/
         void generateMesh(double maxLength)
         {
-            std::vector<node*> nn;
-            double pos[2];
+            std::vector<node*>              nn;                // a vector of nearest neighbours
 
-
+            // For all nodes in the node vector
             for(int i=0;i<nodeVector.size();i++)
             {
+                // find all the nearest neighbours that are within maxLength and store them in the vector nn.
                 nodeTree.find( nn, maxLength, nodeVector[i]->pos);
 
-                //printf("%d, Neighbours found: %d\n", i, nn.size());
+                // loop through all the pairs in the nearest neighbours vector
                 for(int j=0 ;j < nn.size(); j++)
+                for(int k=0 ;k < nn.size(); k++)
                 {
-                    for(int k=0 ;k < nn.size(); k++)
+                    // make sure that all three nodes are different.
+                    if( nodeVector[i] != nn[j] && nodeVector[i] != nn[k] && nn[j] != nn[k] )
                     {
-                        if( nodeVector[i] != nn[j] && nodeVector[i] != nn[k] && nn[j] != nn[k] )
+                        //construct the triangle with those three nodes
+                        triangle * T = new triangle( nodeVector, i, nn[j]->index, nn[k]->index);
+                        int count = 0;
+
+                        //loop through all the nearest neighbours,
+                        for(int l=0;l<nn.size();l++)
                         {
-                            triangle * T = new triangle( nodeVector, i, nn[j]->index, nn[k]->index);
-                            int count = 0;
-
-                            for(int l=0;l<nn.size();l++)
+                            // making sure we do not include the vertices of the triangle
+                            if( nn[l] != nodeVector[i] && nn[l] != nn[j] && nn[l] != nn[k] )
                             {
-                                if( nn[l] != nodeVector[i] && nn[l] != nn[j] && nn[l] != nn[k] )
-                                {
-
-                                    if( T->distanceSquared(nn[l]) < T->radius || T->radius > 0.25*maxLength*maxLength){
-                                        count++;
-                                        break;
-                                    }
+                                // and check if the node is within the circle of the triangle.
+                                if( T->distanceSquared(nn[l]) < T->radius || T->radius > 0.25*maxLength*maxLength){
+                                    count++;
+                                    break;
                                 }
                             }
-
-                            if(count==0)
-                            {
-                                triangleSet.insert( T );
-                            } else
-                            {
-                                delete T;
-                            }
-
                         }
+
+                        // if no other nodes are within the circle
+                        if(count==0)
+                        {
+                            // add the triangle to the list
+                            triangleSet.insert( T );
+                        } else
+                        {
+                            //otherwise, delete the triangle
+                            delete T;
+                        }
+
                     }
                 }
+
             }
 
             printf("Mesh Generated\n");
@@ -246,28 +291,22 @@ class meshGenerator
 
         }
 
-        void print(char *outputName=NULL)
+        void print(std::string outputName)
         {
-            char tri[50];
-            char node[50];
+	    std::string tri;
+	    std::string node;
 
-            if( outputName == NULL)
-            {
-                sprintf(tri,"mesh_triangles.txt");
-                sprintf(node,"mesh_nodes.txt");
-            } else {
-                sprintf(tri,"%s_triangles.txt", outputName);
-                sprintf(node,"%s_nodes.txt", outputName);
-            }
+	    tri = outputName + "_triangles.txt";
+	    node = outputName + "_nodes.txt";
 
-            FILE * f = fopen(node, "w");
+            FILE * f = fopen(node.c_str(), "w");
             for(int i=0;i<nodeVector.size();i++)
             {
                 fprintf(f,"%f %f %f\n", nodeVector[i]->pos[0], nodeVector[i]->pos[1], nodeVector[i]->pos[2]);
             }
             fclose(f);
 
-            f = fopen(tri, "w");
+            f = fopen(tri.c_str(), "w");
 
             std::set<triangle*>::iterator it;
 
@@ -279,21 +318,21 @@ class meshGenerator
             }
             fclose(f);
 
-            printf("Vertices printed to %s\n", node);
-            printf("Triangles printed to %s\n", tri);
+            printf("Vertices printed to %s\n", node.c_str());
+            printf("Triangles printed to %s\n", tri.c_str());
         }
 
-        void drawMesh(char *outputName=NULL, double scale=1000.0)
+        void drawMesh(std::string outputName, double scale=1000.0)
         {
 
             std::set<triangle*>::iterator it;
             char fileName[50];
 
-            if( outputName == NULL)
+            if( outputName == "")
             {
                 sprintf(fileName,"mesh.svg");
             } else {
-                sprintf(fileName,"%s.svg",outputName);
+                sprintf(fileName,"%s.svg",outputName.c_str());
             }
 
 
@@ -307,7 +346,7 @@ class meshGenerator
             triangle *tri;
             for(it = triangleSet.begin(); it != triangleSet.end(); it++)
             {
-                //printf("drawing triangle %d\n", counter);
+
                 counter++;
 
                 tri = *it;
@@ -321,10 +360,6 @@ class meshGenerator
                          << Point( nodeVector[tri->nodes[2]]->pos[0]*sc, nodeVector[tri->nodes[2]]->pos[1]*sc)
                          << Point( nodeVector[tri->nodes[0]]->pos[0]*sc, nodeVector[tri->nodes[0]]->pos[1]*sc);
 
-
-//                         << Point( tri->b->x*sc, tri->b->y*sc)
-                         //<< Point( tri->c->x*sc, tri->c->y*sc)
-                         //<< Point( tri->a->x*sc, tri->a->y*sc);
 
                 doc << triLine;
 
